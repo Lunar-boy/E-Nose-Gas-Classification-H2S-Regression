@@ -63,7 +63,7 @@ Outputs (written to `--out_dir`):
 - `diagnostics_residuals_by_conc.png`
 - `best_model.joblib`
 - `feature_schema.json`
-- `README.md`: a results-specific interpretation guide
+
 
 ### Main H2S regression figure
 
@@ -90,7 +90,7 @@ Outputs:
 `baseline_run_window_pipeline_rf.py` expects a frame-wise CSV (e.g., `all_gases_framewise.csv`) with at least:
 
 - `time`
-- 16 sensor columns
+- `16 sensor columns`
 - `gas_id`, `run_id`
 - `t_exposure_start_ms`, `t_exposure_end_ms`
 
