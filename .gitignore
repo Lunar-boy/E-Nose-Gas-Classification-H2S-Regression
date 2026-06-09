@@ -17,3 +17,7 @@ venv/
 outputs/
 logs/
 checkpoints/
+
+#data
+
+data/
