@@ -4,6 +4,7 @@ Render confusion-matrix heatmaps as truecolor raster panels and compose a vector
 LaTeX note: prefer pdflatex or lualatex (avoid latex->dvips), and include graphicx/xcolor.
 """
 import argparse
+import re
 import sys
 import subprocess
 from pathlib import Path
@@ -16,8 +17,88 @@ from matplotlib import colors as mcolors
 from matplotlib import cm as mcm
 from PIL import Image
 
+from mpl_nimbus_roman import set_global_font
+
 
 MODELS = ["KNN", "SVM", "RF", "CNN", "LSTM"]
+CHEM_FORMULA_RE = re.compile(r"\b(?!PC\d+\b)(?=[A-Za-z0-9]*\d)(?:[A-Z][a-z]?\d*)+\b")
+CELL_ANNOTATION_FONT_SIZE = 10
+COLORBAR_TEXT_SIZE_DELTA_PT = 3
+
+
+def fmt_formula(text: str, math_wrapped: bool | None = None) -> str:
+    s0 = str(text).strip()
+    if math_wrapped is None:
+        math_wrapped = "$" in s0
+
+    if math_wrapped:
+        direct_map = {
+            "H2S": r"H_{2}S",
+            "C2H6O": r"C_{2}H_{6}O",
+        }
+    else:
+        direct_map = {
+            "H2S": r"H$_2$S",
+            "C2H6O": r"C$_2$H$_6$O",
+        }
+
+    for raw, repl in direct_map.items():
+        s0 = re.sub(rf"\b{re.escape(raw)}\b", repl, s0)
+
+    def _format_token(match: re.Match[str]) -> str:
+        token = match.group(0)
+        if math_wrapped:
+            return re.sub(r"(\d+)", lambda d: f"_{{{d.group(1)}}}", token)
+        return re.sub(
+            r"(\d+)",
+            lambda d: f"$_{d.group(1)}$" if len(d.group(1)) == 1 else f"$_{{{d.group(1)}}}$",
+            token,
+        )
+
+    return CHEM_FORMULA_RE.sub(_format_token, s0)
+
+
+def format_chemical_formula(text: str) -> str:
+    return fmt_formula(text)
+
+
+def set_thick_axes(ax: plt.Axes) -> None:
+    for spine in ax.spines.values():
+        spine.set_linewidth(3)
+    ax.tick_params(axis="both", which="major", width=3)
+    ax.tick_params(axis="both", which="minor", width=3)
+
+
+def apply_bold_text(ax: plt.Axes) -> None:
+    ax.title.set_fontweight("bold")
+    ax.xaxis.label.set_fontweight("bold")
+    ax.yaxis.label.set_fontweight("bold")
+    for tick in ax.get_xticklabels() + ax.get_yticklabels():
+        tick.set_fontweight("bold")
+    for text in ax.texts:
+        text.set_fontweight("bold")
+    legend = ax.get_legend()
+    if legend is not None:
+        for txt in legend.get_texts():
+            txt.set_fontweight("bold")
+        title = legend.get_title()
+        if title is not None:
+            title.set_fontweight("bold")
+        frame = legend.get_frame()
+        if frame is not None and frame.get_visible():
+            frame.set_linewidth(3)
+
+
+def style_colorbar(cbar: mpl.colorbar.Colorbar) -> None:
+    cbar.outline.set_linewidth(3)
+    cbar.ax.tick_params(axis="both", which="major", width=3)
+    cbar.ax.tick_params(axis="both", which="minor", width=3)
+    cbar.ax.yaxis.label.set_fontweight("bold")
+    cbar.ax.xaxis.label.set_fontweight("bold")
+    for tick in cbar.ax.get_xticklabels() + cbar.ax.get_yticklabels():
+        tick.set_fontweight("bold")
+    for spine in cbar.ax.spines.values():
+        spine.set_linewidth(3)
 
 
 def _is_non_numeric_series(s: pd.Series) -> bool:
@@ -144,29 +225,50 @@ def plot_confmats_raster_panels(mats, labels_x, labels_y, tmp_pngs, out_pdf: Pat
         ax.set_facecolor("white")
         panel = np.asarray(Image.open(png_path))
         ax.imshow(panel, interpolation="nearest", resample=False, origin="upper", aspect="equal")
-        ax.set_title(title)
+        ax.set_title(title, fontweight="bold")
         ax.set_xticks(np.arange(len(xlab)))
         ax.set_yticks(np.arange(len(ylab)))
-        ax.set_xticklabels(xlab, rotation=45, ha="right")
-        ax.set_yticklabels(ylab)
+        ax.set_xticklabels([format_chemical_formula(str(label)) for label in xlab], rotation=45, ha="right")
+        ax.set_yticklabels([format_chemical_formula(str(label)) for label in ylab])
         if idx > 0:
             ax.tick_params(labelleft=False)
+        ax.xaxis.label.set_fontsize(ax.xaxis.label.get_fontsize() + 2)
+        ax.yaxis.label.set_fontsize(ax.yaxis.label.get_fontsize() + 2)
+        ax.title.set_fontsize(ax.title.get_fontsize() + 2)
+        for tick in ax.get_xticklabels():
+            tick.set_fontsize(tick.get_fontsize() + 2)
+        for tick in ax.get_yticklabels():
+            tick.set_fontsize(tick.get_fontsize() + 2)
 
         if M.shape[0] <= 15:
             for i in range(M.shape[0]):
                 for j in range(M.shape[1]):
                     val = M[i, j]
                     color = "white" if val > 50.0 else "black"
-                    ax.text(j, i, f"{val:.0f}", ha="center", va="center", color=color, fontsize=8)
+                    ax.text(
+                        j,
+                        i,
+                        f"{val:.0f}",
+                        ha="center",
+                        va="center",
+                        color=color,
+                        fontsize=CELL_ANNOTATION_FONT_SIZE,
+                        fontweight="bold",
+                    )
+        set_thick_axes(ax)
+        apply_bold_text(ax)
 
     sm = mcm.ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
-    cbar = fig.colorbar(sm, ax=axes, location="right", shrink=0.9, pad=0.02)
-    cbar.set_label("Run % (row-normalized)")
+    cbar = fig.colorbar(sm, ax=axes, location="right", pad=0.02)
+    cbar.set_label("Run % (row-normalized)", fontweight="bold")
+    cbar.ax.yaxis.label.set_fontsize(cbar.ax.yaxis.label.get_fontsize() + COLORBAR_TEXT_SIZE_DELTA_PT)
     cbar.ax.set_facecolor("lightblue")
-
-    fig.supxlabel("Predicted class")
-    fig.supylabel("True class")
+    for tick in cbar.ax.get_yticklabels():
+        tick.set_fontsize(tick.get_fontsize() + 1 + COLORBAR_TEXT_SIZE_DELTA_PT)
+    style_colorbar(cbar)
+    for txt in fig.texts:
+        txt.set_fontweight("bold")
 
     out_pdf.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_pdf, format="pdf", dpi=600, bbox_inches="tight", transparent=False, facecolor="white")
@@ -259,4 +361,5 @@ if __name__ == "__main__":
         "axes.facecolor": "white",
         "pdf.compression": 0,
     })
+    set_global_font()
     main()
