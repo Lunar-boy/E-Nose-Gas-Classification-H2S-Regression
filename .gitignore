@@ -21,6 +21,5 @@ checkpoints/
 .codex/
 #data
 tmp_confmat_panels/
-data/
 1.pdf
 1.png
