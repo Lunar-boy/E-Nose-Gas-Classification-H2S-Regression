@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.lines import Line2D
 
+from mpl_nimbus_roman import set_global_font
+
 try:
     from sklearn.decomposition import PCA  # type: ignore
     from sklearn.metrics import silhouette_score  # type: ignore
@@ -22,9 +24,11 @@ except Exception:
     SKLEARN_AVAILABLE = False
 
 
-DATA_PATH = "/home/chunzhi/Desktop/nose/Network/all_gases_framewise.csv"
+DATA_PATH = "/home/nate/Desktop/E-Nose-Gas-Classification-H2S-Regression/data/all_gases_framewise.csv"
 OUTPUT_PNG = "figure_fingerprint_pca.png"
 OUTPUT_PDF = "figure_fingerprint_pca.pdf"
+OUTPUT_PCA_PNG = "figure_pca_only.png"
+OUTPUT_PCA_PDF = "figure_pca_only.pdf"
 
 BASE_GAS_COLORS = {
     "NO": "#0000F0",
@@ -47,6 +51,8 @@ FALLBACK_COLORS = [
     "#000000",  # black
 ]
 
+CHEM_FORMULA_RE = re.compile(r"\b(?!PC\d+\b)(?=[A-Za-z0-9]*\d)(?:[A-Z][a-z]?\d*)+\b")
+
 
 @dataclass
 class VariantResult:
@@ -67,6 +73,42 @@ def build_colormap() -> LinearSegmentedColormap:
         ["#D00000", "#FFFFFF", "#00A000"],
         N=256,
     )
+
+
+def fmt_formula(text: str, math_wrapped: Optional[bool] = None) -> str:
+    s0 = str(text).strip()
+    if math_wrapped is None:
+        math_wrapped = "$" in s0
+
+    if math_wrapped:
+        direct_map = {
+            "H2S": r"H_{2}S",
+            "C2H6O": r"C_{2}H_{6}O",
+        }
+    else:
+        direct_map = {
+            "H2S": r"H$_2$S",
+            "C2H6O": r"C$_2$H$_6$O",
+        }
+
+    for raw, repl in direct_map.items():
+        s0 = re.sub(rf"\b{re.escape(raw)}\b", repl, s0)
+
+    def _format_token(match: re.Match[str]) -> str:
+        token = match.group(0)
+        if math_wrapped:
+            return re.sub(r"(\d+)", lambda d: f"_{{{d.group(1)}}}", token)
+        return re.sub(
+            r"(\d+)",
+            lambda d: f"$_{d.group(1)}$" if len(d.group(1)) == 1 else f"$_{{{d.group(1)}}}$",
+            token,
+        )
+
+    return CHEM_FORMULA_RE.sub(_format_token, s0)
+
+
+def format_chemical_formula(text: str) -> str:
+    return fmt_formula(text)
 
 
 def parse_ppm(run_id: str) -> float:
@@ -183,7 +225,7 @@ def compute_run_features(df: pd.DataFrame, sensors: List[str]) -> pd.DataFrame:
 
             sat = y_diff[mask_sat].mean() if mask_sat.any() else np.nan
             if mask_auc.any():
-                auc = np.trapz(y_diff[mask_auc], t_sec[mask_auc])
+                auc = np.trapezoid(y_diff[mask_auc], t_sec[mask_auc])
                 dmax = np.max(y_diff[mask_auc])
             else:
                 auc = np.nan
@@ -324,18 +366,62 @@ def size_for_ppm(ppm: float) -> float:
     return 20 + 5 * ppm
 
 
+def set_thick_axes(ax: mpl.axes.Axes) -> None:
+    for spine in ax.spines.values():
+        spine.set_linewidth(3)
+        spine.set_color("0.2")
+    ax.tick_params(axis="both", which="major", width=3)
+    ax.tick_params(axis="both", which="minor", width=3)
+
+
+def apply_bold_text(ax: mpl.axes.Axes) -> None:
+    ax.title.set_fontweight("bold")
+    ax.xaxis.label.set_fontweight("bold")
+    ax.yaxis.label.set_fontweight("bold")
+    for tick in ax.get_xticklabels() + ax.get_yticklabels():
+        tick.set_fontweight("bold")
+    for text in ax.texts:
+        text.set_fontweight("bold")
+    legend = ax.get_legend()
+    if legend is not None:
+        for txt in legend.get_texts():
+            txt.set_fontweight("bold")
+        title = legend.get_title()
+        if title is not None:
+            title.set_fontweight("bold")
+        frame = legend.get_frame()
+        if frame is not None and frame.get_visible():
+            frame.set_linewidth(3)
+
+
+def style_colorbar(cbar: mpl.colorbar.Colorbar) -> None:
+    cbar.outline.set_linewidth(3)
+    cbar.ax.tick_params(axis="both", which="major", width=3)
+    cbar.ax.tick_params(axis="both", which="minor", width=3)
+    cbar.ax.yaxis.label.set_fontweight("bold")
+    cbar.ax.xaxis.label.set_fontweight("bold")
+    for tick in cbar.ax.get_xticklabels() + cbar.ax.get_yticklabels():
+        tick.set_fontweight("bold")
+    for spine in cbar.ax.spines.values():
+        spine.set_linewidth(3)
+
+
 def main() -> None:
     mpl.rcParams.update(
         {
             "figure.dpi": 150,
             "font.size": 10,
             "axes.titlesize": 11,
-            "axes.labelsize": 10,
-            "xtick.labelsize": 9,
-            "ytick.labelsize": 9,
+            "axes.labelsize": 12,
+            "xtick.labelsize": 11,
+            "ytick.labelsize": 11,
             "axes.linewidth": 0.8,
+            "font.weight": "bold",
+            "axes.labelweight": "bold",
+            "axes.titleweight": "bold",
         }
     )
+    set_global_font()
 
     df = pd.read_csv(DATA_PATH)
     sensors = [c for c in df.columns if re.match(r"s\d{2}$", c)]
@@ -374,6 +460,157 @@ def main() -> None:
     X_pca = best.pca.transform(X_scaled)
     pca_df["PC1"] = X_pca[:, 0]
     pca_df["PC2"] = X_pca[:, 1]
+
+        # ============================================================
+    # Standalone PCA figure
+    # ============================================================
+    fig_pca, ax_pca_only = plt.subplots(figsize=(22, 13))
+
+    # PCA scatter
+    for gas in gas_order:
+        subset = pca_df[pca_df["gas_name"] == gas]
+
+        ax_pca_only.scatter(
+            subset["PC1"],
+            subset["PC2"],
+            s=[5 * size_for_ppm(v) for v in subset["ppm"]],
+            c=gas_colors.get(gas, "#333333"),
+            alpha=0.75,
+            edgecolor="none",
+            label=gas,
+        )
+
+    # Zero reference lines
+    ax_pca_only.axhline(
+        0,
+        color="0.7",
+        lw=0.8,
+        zorder=0,
+    )
+    ax_pca_only.axvline(
+        0,
+        color="0.7",
+        lw=0.8,
+        zorder=0,
+    )
+
+    # Axis labels
+    ax_pca_only.set_xlabel(
+        "PC1(84.0%)",
+        fontsize=37,
+        fontweight="bold",
+        labelpad=22
+    )
+
+    ax_pca_only.set_ylabel(
+        "PC2(12.0%)",
+        fontsize=37,
+        fontweight="bold",
+        labelpad=20
+    )
+
+    # Gas legend
+    gas_handles_only = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            linestyle="",
+            color=gas_colors[g],
+            label=format_chemical_formula(g),
+            markersize=14,
+        )
+        for g in gas_order
+    ]
+
+    gas_legend_only = ax_pca_only.legend(
+        handles=gas_handles_only,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.98),
+        ncol=min(8, len(gas_handles_only)),
+        frameon=False,
+        fontsize=30,
+        handletextpad=0.4,
+        columnspacing=1.2,
+    )
+
+    ax_pca_only.add_artist(gas_legend_only)
+    gas_legend_only.set_in_layout(True)
+    # ppm-size legend
+    size_levels = [1, 5, 10, 20, 50]
+
+    size_handles_only = [
+        plt.scatter(
+            [],
+            [],
+            s=4*size_for_ppm(v),
+            color="0.5",
+            alpha=0.7,
+            label=str(v),
+        )
+        for v in size_levels
+    ]
+
+    size_legend_only = ax_pca_only.legend(
+        handles=size_handles_only,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.35),
+        ncol=len(size_levels),
+        frameon=False,
+        fontsize=35,
+        handletextpad=0.6,
+        columnspacing=1.2,
+    )
+
+    # PCA border
+    for spine in ax_pca_only.spines.values():
+        spine.set_linewidth(5)
+        spine.set_color("0.2")
+
+    # PCA ticks
+    ax_pca_only.tick_params(
+        axis="both",
+        which="major",
+        width=5,
+        length=10,
+        labelsize=36,
+        pad=11,
+    )
+
+    # Bold tick labels
+    for label in (
+        ax_pca_only.get_xticklabels()
+        + ax_pca_only.get_yticklabels()
+    ):
+        label.set_fontweight("bold")
+
+    # Bold legends
+    for legend in [gas_legend_only, size_legend_only]:
+        for text in legend.get_texts():
+            text.set_fontweight("bold")
+
+    # Give the bottom legend enough room
+    fig_pca.subplots_adjust(
+        left=0.12,
+        right=0.97,
+        top=0.82 ,
+        bottom=0.3,
+    )
+
+    fig_pca.savefig(
+        OUTPUT_PCA_PNG,
+        dpi=300,
+        bbox_inches="tight",
+        bbox_extra_artists=(gas_legend_only, size_legend_only),
+    )
+
+    fig_pca.savefig(
+        OUTPUT_PCA_PDF,
+        bbox_inches="tight",
+        bbox_extra_artists=(gas_legend_only, size_legend_only),
+    )
+
+    plt.close(fig_pca)
 
     # Use the same ordering for plotting
     pca_df = pca_df.set_index("run_id").loc[ordered_run_ids].reset_index()
@@ -423,7 +660,7 @@ def main() -> None:
     )
 
     ax_heat.set_yticks([])
-    ax_heat.set_ylabel("response feature", labelpad=10)
+    ax_heat.set_ylabel("response feature", labelpad=10, fontweight="bold")
     ax_heat.set_xticks([])
 
     # Gas group separators and labels
@@ -434,7 +671,7 @@ def main() -> None:
         ax_heat.text(
             center,
             1.02,
-            gas,
+            format_chemical_formula(gas),
             transform=ax_heat.get_xaxis_transform(),
             ha="center",
             va="bottom",
@@ -443,7 +680,7 @@ def main() -> None:
 
     # Colorbar
     cbar = fig.colorbar(im, cax=ax_cbar)
-    cbar.set_label("transformed response")
+    cbar.set_label("transformed response", fontweight="bold")
     cbar.set_ticks([-2, -1, 0, 1, 2])
     ax_cbar.yaxis.tick_right()
     ax_cbar.yaxis.set_label_position("right")
@@ -467,7 +704,7 @@ def main() -> None:
             edgecolor="none",
             zorder=3,
         )
-    ax_lolli.set_ylabel("ppm")
+    ax_lolli.set_ylabel("ppm", fontweight="bold")
     ax_lolli.set_yticks([0, 10, 20, 50])
     ax_lolli.set_xticks([])
 
@@ -487,13 +724,20 @@ def main() -> None:
     ax_pca.axhline(0, color="0.7", lw=0.8, zorder=0)
     ax_pca.axvline(0, color="0.7", lw=0.8, zorder=0)
 
-    evr = best.pca.explained_variance_ratio_ * 100
-    ax_pca.set_xlabel(f"PC1 ({evr[0]:.1f}%)")
-    ax_pca.set_ylabel(f"PC2 ({evr[1]:.1f}%)")
+    ax_pca.set_xlabel("PC1(84.0%)", fontweight="bold",fontsize=15)
+    ax_pca.set_ylabel("PC2(12.0%)", fontweight="bold",fontsize=15)
 
     # Legends
     gas_handles = [
-        Line2D([0], [0], marker="o", linestyle="", color=gas_colors[g], label=g, markersize=6)
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            linestyle="",
+            color=gas_colors[g],
+            label=format_chemical_formula(g),
+            markersize=6,
+        )
         for g in gas_order
     ]
     gas_legend = ax_pca.legend(
@@ -504,6 +748,7 @@ def main() -> None:
         frameon=False,
         handletextpad=0.4,
         columnspacing=1.2,
+        fontsize=14,
     )
     ax_pca.add_artist(gas_legend)
 
@@ -512,22 +757,53 @@ def main() -> None:
         plt.scatter([], [], s=size_for_ppm(v), color="0.5", alpha=0.7, label=str(v))
         for v in size_levels
     ]
-    ax_pca.legend(
+    size_legend = ax_pca.legend(
         handles=size_handles,
-       
         loc="lower center",
         bbox_to_anchor=(0.5, -0.24),
         ncol=len(size_levels),
         frameon=False,
         handletextpad=0.6,
         columnspacing=1.2,
+        fontsize=14,
     )
 
-    # Style spines
-    for ax in [ax_heat, ax_lolli, ax_pca]:
-        for spine in ax.spines.values():
-            spine.set_linewidth(0.8)
-            spine.set_color("0.2")
+    for ax in [ax_heat, ax_lolli, ax_cbar]:
+        set_thick_axes(ax)
+        apply_bold_text(ax)
+    for spine in ax_pca.spines.values():
+        spine.set_linewidth(5)
+        spine.set_color("0.2")
+
+    ax_pca.tick_params(
+        axis="both",
+        which="major",
+        width=3,
+        length=3,
+        labelsize=14,
+    )
+
+    ax_pca.tick_params(
+        axis="both",
+        which="minor",
+        width=3
+    )
+    apply_bold_text(ax_pca)
+
+    for txt in fig.texts:
+        txt.set_fontweight("bold")
+    style_colorbar(cbar)
+    for legend in [gas_legend, size_legend]:
+        for txt in legend.get_texts():
+            txt.set_fontweight("bold")
+            txt.set_fontsize(txt.get_fontsize() + 1)
+        title = legend.get_title()
+        if title is not None:
+            title.set_fontweight("bold")
+            title.set_fontsize(title.get_fontsize() + 1)
+        frame = legend.get_frame()
+        if frame is not None and frame.get_visible():
+            frame.set_linewidth(3)
 
     fig.savefig(OUTPUT_PNG, dpi=300, bbox_inches="tight")
     fig.savefig(OUTPUT_PDF, dpi=300, bbox_inches="tight")

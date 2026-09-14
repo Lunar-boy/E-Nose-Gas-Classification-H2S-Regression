@@ -18,12 +18,14 @@ from matplotlib.patches import Rectangle
 from matplotlib.ticker import FormatStrFormatter
 from PIL import Image
 
+from mpl_nimbus_roman import set_global_font
 
-CSV_PATH = "/home/chunzhi/Desktop/nose/Network/results_h2s_regression/baseline_comparison.csv"
-OUT_PDF = "/home/chunzhi/Desktop/nose/Network/results_h2s_regression/fig_h2s_regression_main4_v3.pdf"
-OUT_PNG = "/home/chunzhi/Desktop/nose/Network/results_h2s_regression/fig_h2s_regression_main4_v3.png"
-OUT_TEX = "/home/chunzhi/Desktop/nose/Network/results_h2s_regression/tab_h2s_main4.tex"
-OUT_SUMMARY = "/home/chunzhi/Desktop/nose/Network/results_h2s_regression/summary_h2s_ranked.csv"
+
+CSV_PATH = "/home/nate/Desktop/E-Nose-Gas-Classification-H2S-Regression/data/baseline_comparison.csv"
+OUT_PDF = "fig_h2s_regression_main4_v3.pdf"
+OUT_PNG = "fig_h2s_regression_main4_v3.png"
+OUT_TEX = "tab_h2s_main4.tex"
+OUT_SUMMARY = "summary_h2s_ranked.csv"
 
 DOSE_COLS = [
     "mae_log_1ppm",
@@ -165,12 +167,49 @@ def add_panel_label(ax: plt.Axes, label: str) -> None:
 
 
 def style_axes(ax: plt.Axes) -> None:
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    for side in ("left", "bottom"):
-        ax.spines[side].set_linewidth(0.6)
+    ax.spines["top"].set_visible(True)
+    ax.spines["right"].set_visible(True)
+    for side in ("left", "bottom", "top", "right"):
+        ax.spines[side].set_linewidth(3)
         ax.spines[side].set_color("#333333")
-    ax.tick_params(axis="both", which="major", width=0.6, length=3, color="#333333")
+    ax.tick_params(axis="both", which="major", width=3, length=3, color="#333333")
+    ax.tick_params(axis="both", which="minor", width=3, color="#333333")
+    ax.tick_params(top=False, right=False, labeltop=False, labelright=False)
+
+
+def apply_bold_text(ax: plt.Axes) -> None:
+    ax.title.set_fontweight("bold")
+    ax.xaxis.label.set_fontweight("bold")
+    ax.yaxis.label.set_fontweight("bold")
+    for tick in ax.get_xticklabels() + ax.get_yticklabels():
+        tick.set_fontweight("bold")
+    for text in ax.texts:
+        text.set_fontweight("bold")
+    legend = ax.get_legend()
+    if legend is not None:
+        for txt in legend.get_texts():
+            txt.set_fontweight("bold")
+        title = legend.get_title()
+        if title is not None:
+            title.set_fontweight("bold")
+        frame = legend.get_frame()
+        if frame is not None and frame.get_visible():
+            frame.set_linewidth(3)
+
+
+def style_colorbar(cbar, right_ticks: bool = False) -> None:
+    cbar.outline.set_linewidth(3)
+    cbar.ax.tick_params(axis="both", which="major", width=3)
+    cbar.ax.tick_params(axis="both", which="minor", width=3)
+    if right_ticks:
+        cbar.ax.yaxis.set_ticks_position("right")
+        cbar.ax.tick_params(axis="y", right=True, left=False, labelright=True, labelleft=False)
+    cbar.ax.yaxis.label.set_fontweight("bold")
+    cbar.ax.xaxis.label.set_fontweight("bold")
+    for tick in cbar.ax.get_xticklabels() + cbar.ax.get_yticklabels():
+        tick.set_fontweight("bold")
+    for spine in cbar.ax.spines.values():
+        spine.set_linewidth(3)
 
 
 def main() -> None:
@@ -284,15 +323,16 @@ def main() -> None:
 
     matplotlib.rcParams.update({
         "font.size": 8,
-        "axes.titlesize": 8,
-        "axes.labelsize": 8,
-        "xtick.labelsize": 7,
-        "ytick.labelsize": 7,
+        "axes.titlesize": 10,
+        "axes.labelsize": 10,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
         "legend.fontsize": 7,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
         "font.family": "DejaVu Sans",
     })
+    set_global_font()
 
     fig = plt.figure(figsize=(7.4, 5.2), dpi=150)
     gs = fig.add_gridspec(
@@ -342,8 +382,8 @@ def main() -> None:
     ax_a.set_yticks(y)
     ax_a.set_yticklabels(display_names)
     ax_a.invert_yaxis()
-    ax_a.set_xlabel("log err")
-    ax_a.xaxis.set_major_formatter(FormatStrFormatter("%.3f"))
+    ax_a.set_xlabel("", fontweight="bold")
+    ax_a.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
     style_axes(ax_a)
 
     for label, full_name in zip(ax_a.get_yticklabels(), model_names):
@@ -363,15 +403,15 @@ def main() -> None:
         row = df_sorted[df_sorted["model_name"] == name].iloc[0]
         yy = model_names.index(name)
         r2 = format_val(row.get("global_r2"))
-        rho = format_val(row.get("spearman_rho"))
         ax_a.text(
             ann_x,
             yy,
-            f"R2 {r2} | rho {rho}",
+            fr"$\mathbf{{R^2}}$ {r2}",
             ha="left",
             va="center",
             fontsize=7,
             color="#333333",
+            fontweight="bold",
         )
 
     legend_handles = [
@@ -380,9 +420,19 @@ def main() -> None:
         Line2D([0], [0], marker="o", linestyle="none", markerfacecolor=rmse_color, markeredgecolor=rmse_color,
                markersize=5, label="RMSE (tail-sensitive)"),
     ]
-    ax_a.legend(handles=legend_handles, frameon=False, loc="lower left", bbox_to_anchor=(0.01, 0.02))
-    ax_a.set_title("Global performance")
+    legend_a = ax_a.legend(handles=legend_handles, frameon=False, loc="lower left", bbox_to_anchor=(0.01, 0.02))
+    ax_a.set_title("Global performance", fontweight="bold")
     add_panel_label(ax_a, "(a)")
+    apply_bold_text(ax_a)
+    if legend_a is not None:
+        for txt in legend_a.get_texts():
+            txt.set_fontweight("bold")
+        title = legend_a.get_title()
+        if title is not None:
+            title.set_fontweight("bold")
+        frame = legend_a.get_frame()
+        if frame is not None and frame.get_visible():
+            frame.set_linewidth(3)
 
     # Panel (b): Heatmap
     missing_dose_cols = [c for c in DOSE_COLS if c not in df_sorted.columns]
@@ -421,8 +471,8 @@ def main() -> None:
         ax_b.set_xticklabels(DOSE_LABELS)
         ax_b.set_yticks(np.arange(len(model_names)))
         ax_b.set_yticklabels(display_names)
-        ax_b.set_xlabel("dose")
-        ax_b.set_title("Per-dose MAE")
+        ax_b.set_xlabel("", fontweight="bold")
+        ax_b.set_title("Per-dose MAE", fontweight="bold")
         style_axes(ax_b)
 
         ax_b.set_xticks(np.arange(-0.5, len(DOSE_COLS), 1), minor=True)
@@ -451,11 +501,23 @@ def main() -> None:
                 else:
                     text = f"{val:.3f}"
                     text_color = "white" if val >= (vmin + vmax) / 2 else "black"
-                ax_b.text(col_idx, row_idx, text, ha="center", va="center", fontsize=7, color=text_color)
+                ax_b.text(
+                    col_idx,
+                    row_idx,
+                    text,
+                    ha="center",
+                    va="center",
+                    fontsize=7,
+                    color=text_color,
+                    fontweight="bold",
+                )
 
         mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
         mappable.set_array([])
         cbar = fig.colorbar(mappable, ax=ax_b, fraction=0.046, pad=0.04)
+        style_colorbar(cbar, right_ticks=True)
+        for tick in cbar.ax.get_yticklabels():
+            tick.set_fontsize(tick.get_fontsize() + 1)
         add_panel_label(ax_b, "(b)")
 
         for label, full_name in zip(ax_b.get_yticklabels(), model_names):
@@ -464,13 +526,14 @@ def main() -> None:
                 label.set_color("#000000")
             else:
                 label.set_color("#7A7A7A")
+        apply_bold_text(ax_b)
 
     # Panel (c): Scatter decision plot
     style_axes(ax_c)
-    ax_c.set_xlabel("MAE")
+    ax_c.set_xlabel("", fontweight="bold")
     ax_c.set_ylabel("")
-    ax_c.xaxis.set_major_formatter(FormatStrFormatter("%.3f"))
-    ax_c.yaxis.set_major_formatter(FormatStrFormatter("%.3f"))
+    ax_c.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+    ax_c.yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
 
     is_highlight = df_sorted["model_name"].isin(highlight_names).to_numpy()
     ax_c.scatter(
@@ -545,6 +608,7 @@ def main() -> None:
                 ha="left",
                 va="center",
                 fontsize=7,
+                fontweight="bold",
                 arrowprops=dict(arrowstyle="-", color="#444444", lw=0.6, shrinkA=0, shrinkB=2),
             )
         return base_dx, base_dy
@@ -560,10 +624,14 @@ def main() -> None:
         mappable = cm.ScalarMappable(norm=r2_norm, cmap=cm.get_cmap("viridis"))
         mappable.set_array([])
         cbar = fig.colorbar(mappable, ax=ax_c, fraction=0.046, pad=0.04)
-        cbar.set_label("R2")
+        cbar.set_label(r"$\mathbf{R^2}$", fontweight="bold", rotation=90)
+        style_colorbar(cbar, right_ticks=True)
+        for tick in cbar.ax.get_yticklabels():
+            tick.set_fontsize(tick.get_fontsize() + 1)
 
-    ax_c.set_title("Decision plot")
+    ax_c.set_title("MAE Decision plot", fontweight="bold")
     add_panel_label(ax_c, "(c)")
+    apply_bold_text(ax_c)
 
     fig.savefig(OUT_PDF, bbox_inches="tight")
     fig.savefig(OUT_PNG, dpi=650, bbox_inches="tight")
